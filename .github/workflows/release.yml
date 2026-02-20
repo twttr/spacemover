@@ -55,3 +55,14 @@ jobs:
             *.dmg
             *.zip
           generate_release_notes: true
+
+      - name: Update Homebrew tap
+        env:
+          GH_TOKEN: ${{ secrets.TAP_UPDATE_TOKEN }}
+        run: |
+          gh api repos/twttr/homebrew-apps/dispatches \
+            --method POST \
+            --field event_type=update-cask \
+            -f client_payload[cask]=spacemover \
+            -f "client_payload[version]=${GITHUB_REF_NAME#v}" \
+            -f client_payload[repo]=twttr/SpaceMover

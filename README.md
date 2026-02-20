@@ -35,6 +35,13 @@ SpaceMover uses Mach injection to communicate with Dock.app via private SkyLight
 
 ## Installation
 
+### Homebrew
+
+```bash
+brew tap twttr/apps
+brew install --cask spacemover
+```
+
 ### Build from Source
 
 1. Clone the repository:
