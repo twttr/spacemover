@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Payload
+        run: make -C Payload
+
+      - name: Build
+        run: |
+          xcodebuild -scheme SpaceMover -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-contents
+          cp -R "build/Build/Products/Release/SpaceMover.app" dmg-contents/
+          ln -s /Applications dmg-contents/Applications
+          hdiutil create -volname "SpaceMover" -srcfolder dmg-contents \
+            -ov -format UDZO "SpaceMover-${{ github.ref_name }}.dmg"
+
+      - name: Create ZIP
+        run: |
+          cd "build/Build/Products/Release"
+          zip -r -y "../../../../SpaceMover-${{ github.ref_name }}.zip" SpaceMover.app
+          cd -
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpaceMover-${{ github.ref_name }}
+          path: |
+            *.dmg
+            *.zip
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            *.dmg
+            *.zip
+          generate_release_notes: true
