@@ -139,6 +139,7 @@ int main(int argc, const char *argv[]) {
         memcpy(code_buf + PAYLOAD_PATH_OFFSET, dylibPath, pathLen);
 
         size_t stackSize = 0x4000;
+        int exitCode = 1;
 
         mach_vm_address_t remoteStack = 0;
         kr = mach_vm_allocate(dockTask, &remoteStack, stackSize, VM_FLAGS_ANYWHERE);
@@ -154,20 +155,20 @@ int main(int argc, const char *argv[]) {
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "mach_vm_allocate (code) failed: %s\n", mach_error_string(kr));
             free(code_buf);
-            return 1;
+            goto cleanup;
         }
 
         kr = mach_vm_write(dockTask, remoteCode, (vm_offset_t)code_buf, (mach_msg_type_number_t)codeSize);
         free(code_buf);
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "mach_vm_write failed: %s\n", mach_error_string(kr));
-            return 1;
+            goto cleanup;
         }
 
         kr = vm_protect(dockTask, (vm_address_t)remoteCode, codeSize, 0, VM_PROT_READ | VM_PROT_EXECUTE);
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "vm_protect (code RX) failed: %s\n", mach_error_string(kr));
-            return 1;
+            goto cleanup;
         }
 
         fprintf(stderr, "Remote code: 0x%llx\n", remoteCode);
@@ -177,7 +178,7 @@ int main(int argc, const char *argv[]) {
         kr = thread_create(dockTask, &thread);
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "thread_create failed: %s\n", mach_error_string(kr));
-            return 1;
+            goto cleanup;
         }
 
         arm_thread_state64_t canonical_state = {};
@@ -203,7 +204,7 @@ int main(int argc, const char *argv[]) {
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "thread_convert_thread_state failed: %s\n", mach_error_string(kr));
             thread_terminate(thread);
-            return 1;
+            goto cleanup;
         }
 
         fprintf(stderr, "thread_convert succeeded, machine_count=%u\n", machine_count);
@@ -260,14 +261,14 @@ int main(int argc, const char *argv[]) {
                 } else {
                     fprintf(stderr, "Approach 3 failed: %s\n", mach_error_string(kr));
                     thread_terminate(fresh_thread);
-                    return 1;
+                    goto cleanup;
                 }
             }
         }
 
         if (kr != KERN_SUCCESS) {
             fprintf(stderr, "All approaches failed\n");
-            return 1;
+            goto cleanup;
         }
 
         fprintf(stderr, "Thread running, waiting for sentinel...\n");
@@ -289,11 +290,19 @@ int main(int argc, const char *argv[]) {
 
         if (injected) {
             fprintf(stderr, "Payload injected successfully into Dock (PID %d)\n", dockPid);
-            return 0;
+            exitCode = 0;
         } else {
             fprintf(stderr, "Injection timed out waiting for sentinel\n");
-            return 1;
         }
+
+    cleanup:
+        if (exitCode != 0) {
+            if (remoteStack)
+                mach_vm_deallocate(dockTask, remoteStack, stackSize);
+            if (remoteCode)
+                mach_vm_deallocate(dockTask, remoteCode, codeSize);
+        }
+        return exitCode;
 
 #else
         uint64_t dlopenAddr = (uint64_t)dlsym(RTLD_DEFAULT, "dlopen");

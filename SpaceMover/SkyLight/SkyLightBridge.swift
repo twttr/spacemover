@@ -49,4 +49,10 @@ enum SkyLightBridge {
     static let copyWindowsWithOptionsAndTags: CopyWindowsWithOptionsAndTagsFn? = symbol("SLSCopyWindowsWithOptionsAndTags")
     static let getWindowOwner: GetWindowOwnerFn? = symbol("SLSGetWindowOwner")
     static let connectionGetPID: ConnectionGetPIDFn? = symbol("SLSConnectionGetPID")
+
+    static var isAvailable: Bool {
+        mainConnectionID != nil
+            && copyManagedDisplaySpaces != nil
+            && moveSpaceToDisplayIndex != nil
+    }
 }

@@ -65,13 +65,14 @@ final class HotkeyManager {
         )
 
         let action: HotkeyAction = hotKeyID.id == 1 ? .moveSpaceLeft : .moveSpaceRight
-        Task { @MainActor in
+        DispatchQueue.main.async {
             HotkeyManager.shared.onAction?(action)
         }
         return noErr
     }
 
     func cleanup() {
+        onAction = nil
         for ref in hotKeyRefs {
             if let ref { UnregisterEventHotKey(ref) }
         }
@@ -80,6 +81,5 @@ final class HotkeyManager {
             RemoveEventHandler(eventHandler)
         }
         eventHandler = nil
-        onAction = nil
     }
 }

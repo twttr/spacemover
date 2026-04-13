@@ -28,11 +28,17 @@ final class SAManager {
     }
 
     func configureSudoers() async -> (success: Bool, error: String) {
-        let user = NSUserName()
-        let sudoersLine = "\(user) ALL=(root) NOPASSWD: \(loaderPath) *"
+        guard loaderPath.hasPrefix(Bundle.main.bundlePath),
+              payloadPath.hasPrefix(Bundle.main.bundlePath) else {
+            return (false, "Invalid loader or payload path")
+        }
+
+        let escapedUser = NSUserName().replacingOccurrences(of: "'", with: "'\\''")
+        let sudoersLine = "\(escapedUser) ALL=(root) NOPASSWD: \(loaderPath) \(payloadPath)"
+        let escapedSudoersLine = sudoersLine.replacingOccurrences(of: "'", with: "'\\''")
 
         let source = """
-        do shell script "echo '\(sudoersLine)' > /private/etc/sudoers.d/spacemover && chmod 0440 /private/etc/sudoers.d/spacemover" with administrator privileges
+        do shell script "echo '\(escapedSudoersLine)' > /private/etc/sudoers.d/spacemover && chmod 0440 /private/etc/sudoers.d/spacemover" with administrator privileges
         """
 
         logger.info("Configuring sudoers for \(self.loaderPath)")
@@ -93,14 +99,21 @@ final class SAManager {
 
         sudoersReconfigureAttempted = false
 
-        try await Task.sleep(nanoseconds: 500_000_000)
-
-        if !isPayloadRunning() {
-            logger.error("Payload not responding after injection")
-            throw MoveError.payloadInjectionFailed("Payload socket not responding after injection")
-        }
+        try await waitForPayload()
 
         logger.info("Payload injected successfully")
+    }
+
+    private func waitForPayload() async throws {
+        var delayNs: UInt64 = 100_000_000
+        let maxAttempts = 6
+        for _ in 0..<maxAttempts {
+            try await Task.sleep(nanoseconds: delayNs)
+            if isPayloadRunning() { return }
+            delayNs = min(delayNs * 2, 1_000_000_000)
+        }
+        logger.error("Payload not responding after waiting")
+        throw MoveError.payloadInjectionFailed("Payload socket not responding after injection")
     }
 
     func moveSpace(
@@ -122,16 +135,40 @@ final class SAManager {
         logger.info("conn=\(conn) space=\(spaceID) src=\(sourceDisplayUUID) dst=\(targetDisplayUUID) idx=\(index) fallback=\(fallbackSpaceID)")
 
         moveFn(conn, spaceID, targetCF, UInt32(index))
-        logger.info("Space moved, restarting Dock to apply visual changes")
 
+        if attemptVisualRefresh(conn: conn, spaceID: spaceID, targetDisplayUUID: targetDisplayUUID, fallbackSpaceID: fallbackSpaceID) {
+            logger.info("Space moved with visual refresh")
+        } else {
+            logger.info("Visual refresh unavailable, restarting Dock")
+            restartDock()
+            try? await waitForPayload()
+        }
+    }
+
+    private nonisolated func attemptVisualRefresh(conn: Int32, spaceID: UInt64, targetDisplayUUID: String, fallbackSpaceID: UInt64) -> Bool {
+        guard let showFn = SkyLightBridge.showSpaces,
+              let hideFn = SkyLightBridge.hideSpaces,
+              let setCurrentFn = SkyLightBridge.setCurrentSpace else {
+            return false
+        }
+        let targetCF = targetDisplayUUID as CFString
+        let spaceArray = [NSNumber(value: spaceID)] as CFArray
+        hideFn(conn, spaceArray)
+        showFn(conn, spaceArray)
+        setCurrentFn(conn, targetCF, spaceID)
+        return true
+    }
+
+    private func restartDock() {
         let dockApps = NSWorkspace.shared.runningApplications.filter {
             $0.bundleIdentifier == "com.apple.dock"
         }
         for dock in dockApps {
-            dock.terminate()
+            let terminated = dock.terminate()
+            if !terminated {
+                logger.warning("dock.terminate() returned false")
+            }
         }
-
-        logger.info("Move completed")
     }
 
     private nonisolated func combinedOutput(_ stdout: String, _ stderr: String) -> String {

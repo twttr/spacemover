@@ -91,6 +91,13 @@ static void *socketThread(void *arg) {
         if (!gSetCurrentSpace) fprintf(stderr, "SpaceMover: SLSManagedDisplaySetCurrentSpace not found\n");
     }
 
+    struct stat st;
+    if (lstat(SPACEMOVER_SOCKET_PATH, &st) == 0) {
+        if (S_ISLNK(st.st_mode)) {
+            fprintf(stderr, "SpaceMover: socket path is a symlink, refusing\n");
+            return NULL;
+        }
+    }
     unlink(SPACEMOVER_SOCKET_PATH);
 
     int serverFd = socket(AF_UNIX, SOCK_STREAM, 0);
@@ -103,13 +110,14 @@ static void *socketThread(void *arg) {
     addr.sun_family = AF_UNIX;
     strlcpy(addr.sun_path, SPACEMOVER_SOCKET_PATH, sizeof(addr.sun_path));
 
+    mode_t oldMask = umask(0177);
     if (bind(serverFd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        umask(oldMask);
         fprintf(stderr, "SpaceMover: bind() failed: %s\n", strerror(errno));
         close(serverFd);
         return NULL;
     }
-
-    chmod(SPACEMOVER_SOCKET_PATH, 0600);
+    umask(oldMask);
 
     if (listen(serverFd, 8) < 0) {
         fprintf(stderr, "SpaceMover: listen() failed: %s\n", strerror(errno));
