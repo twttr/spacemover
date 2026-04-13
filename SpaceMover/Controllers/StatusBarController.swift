@@ -71,7 +71,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         let displaySpaces = SpaceEnumerator.enumerateDisplaySpaces()
 
         if displaySpaces.isEmpty {
-            menu.addItem(NSMenuItem(title: "No displays found", action: nil, keyEquivalent: ""))
+            let message = SkyLightBridge.isAvailable ? "No displays found" : "SkyLight API unavailable"
+            menu.addItem(NSMenuItem(title: message, action: nil, keyEquivalent: ""))
             menu.addItem(.separator())
         }
 
